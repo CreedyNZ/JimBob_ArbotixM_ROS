@@ -26,26 +26,31 @@ from math import pi as PI, degrees, radians
 import os
 import time
 import sys, traceback
+import config
 from serial.serialutil import SerialException
 from serial import Serial
+atrib = config.atrib
 
-
-class Arduino:
+class ArbotixM:
     
     def __init__(self, port, baudrate, timeout):
-        
-        self.PID_RATE = 30 # Do not change this!  It is a fixed property of the Arduino PID controller.
-        self.PID_INTERVAL = 1000 / 30
-        
+
         self.port = port
         self.baudrate = baudrate
         self.timeout = timeout
         self.encoder_count = 0
         self.writeTimeout = timeout
         self.interCharTimeout = timeout / 30.
+
+        #for the controller
+        self.commandtypes = config.stdatrib
+        self.addtypes = config.addatrib
+        self.index = -1
     
         # Keep things thread safe
         self.mutex = thread.allocate_lock()
+
+
 
     
     def connect(self):
@@ -166,7 +171,7 @@ class Arduino:
         self.mutex.release()
         return int(value)
 
-    def execute_commander(self, cmd):
+    def execute_commander(self, cmds):
         ''' Thread safe execution of "cmd" on the Arduino returning a single integer value.
         '''
         self.mutex.acquire()
@@ -176,27 +181,31 @@ class Arduino:
         except:
             pass
 
-        ntries = 1
-        attempts = 0
-
         try:
-            self.port.write(cmd + '\r')
-            value = self.recv(self.timeout)
-            while attempts < ntries and (value == '' or value == 'Invalid Command' or value == None):
-                try:
-                    self.port.flushInput()
-                    self.port.write(cmd + '\r')
-                    value = self.recv(self.timeout)
-                except:
-                    print "Exception executing command: " + cmd
-                attempts += 1
+            #create packets for sending to the Arbotix_M
+          for k in self.addtypes:
+             cmds[k] = cmds[k] + 128
+          checksum = 0
+          self.port.write(chr(255))
+          cmds['i_ComMode'] = cmds['i_Mode'] + cmds['i_Gait']
+          for k in self.commandtypes:
+             self.port.write(chr(cmds[k]))
+             checksum += int(cmds[k])
+          checksum = (255 - (checksum%256))
+          print(cmds['i_RightV'],":_:",cmds['i_RightH'])
+          self.port.write(chr(checksum))
+          move_time = time.time()
+          cmds['i_leftV'] = 0
+          cmds['i_leftH'] = 0
+          cmds['i_RightV'] = 0
+          cmds['i_RightH']= 0
         except:
             self.mutex.release()
             print "Exception executing command: " + cmd
             value = None
 
         self.mutex.release()
-        return int(value)
+        return int()
 
     def execute_array(self, cmd):
         ''' Thread safe execution of "cmd" on the Arduino returning an array.
@@ -372,24 +381,24 @@ if __name__ == "__main__":
         
     baudRate = 57600
 
-    myArduino = Arduino(port=portName, baudrate=baudRate, timeout=0.5)
-    myArduino.connect()
+    myArbotixM = ArbotixM(port=portName, baudrate=baudRate, timeout=0.5)
+    myArbotixM.connect()
      
     print "Sleeping for 1 second..."
     time.sleep(1)   
     
-    print "Reading on analog port 0", myArduino.analog_read(0)
-    print "Reading on digital port 0", myArduino.digital_read(0)
+    print "Reading on analog port 0", myArbotixM.analog_read(0)
+    print "Reading on digital port 0", myArbotixM.digital_read(0)
     print "Blinking the LED 3 times"
     for i in range(3):
-        myArduino.digital_write(13, 1)
+        myArbotixM.digital_write(13, 1)
         time.sleep(1.0)
     #print "Current encoder counts", myArduino.encoders()
     
     print "Connection test successful.",
     
-    myArduino.stop()
-    myArduino.close()
+    myArbotixM.stop()
+    myArbotixM.close()
     
     print "Shutting down Arduino."
     

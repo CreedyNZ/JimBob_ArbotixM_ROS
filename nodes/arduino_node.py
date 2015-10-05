@@ -20,7 +20,7 @@
 """
 
 import rospy
-from ros_arduino_python.arduino_driver import Arduino
+from ros_arduino_python.arduino_driver import ArbotixM
 from ros_arduino_msgs.srv import *
 from ros_arduino_python.base_controller import BaseController
 from geometry_msgs.msg import Twist
@@ -29,7 +29,7 @@ import thread
 
 class ArduinoROS():
     def __init__(self):
-        rospy.init_node('Arduino', log_level=rospy.DEBUG)
+        rospy.init_node('ArbotixM', log_level=rospy.DEBUG)
                 
         # Cleanup when termniating the node
         rospy.on_shutdown(self.shutdown)
@@ -57,7 +57,7 @@ class ArduinoROS():
         
 
         # Initialize the controlller
-        self.controller = Arduino(self.port, self.baud, self.timeout)
+        self.controller = ArbotixM(self.port, self.baud, self.timeout)
         
         # Make the connection
         self.controller.connect()
