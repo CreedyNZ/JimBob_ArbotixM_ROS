@@ -1,5 +1,5 @@
 <package>
-  <name>ros_arduino_python</name>
+  <name>ros_arbotix_driver</name>
   <version>0.2.0</version>
   <description>
     ROS Arduino Python.
