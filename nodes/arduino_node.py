@@ -60,7 +60,7 @@ class ArduinoROS():
         self.controller = ArbotixM(self.port, self.baud, self.timeout)
         
         # Make the connection
-        self.controller.connect()
+        #self.controller.connect() <<<<<<<<<<<Debug
         
         rospy.loginfo("Connected to Arduino on port " + self.port + " at " + str(self.baud) + " baud")
      

@@ -29,6 +29,14 @@ import sys, traceback
 import config
 from serial.serialutil import SerialException
 from serial import Serial
+
+#Values for Phoenix Code Mcde setting
+RESET  = 0
+WALK = 10
+ROTATE = 20
+TRANSLATE = 30
+SINLEG = 40
+
 atrib = config.atrib
 
 class ArbotixM:
@@ -59,14 +67,7 @@ class ArbotixM:
             self.port = Serial(port=self.port, baudrate=self.baudrate, timeout=self.timeout, writeTimeout=self.writeTimeout)
             # The next line is necessary to give the firmware time to wake up.
             time.sleep(1)
-            test = self.get_baud()
-            if test != self.baudrate:
-                time.sleep(1)
-                test = self.get_baud()   
-                if test != self.baudrate:
-                    raise SerialException
-            print "Connected at", self.baudrate
-            print "Arduino is ready."
+            print "Arbotix is ready."
 
         except SerialException:
             print "Serial Exception:"
@@ -86,11 +87,11 @@ class ArbotixM:
         '''
         self.port.close() 
     
-    def send(self, cmd):
+    def send(self, cmds):
         ''' This command should not be used on its own: it is called by the execute commands
             below in a thread safe manner.
         '''
-        self.port.write(cmd + '\r')
+        self.port.write(cmds)
 
     def recv(self, timeout=0.5):
         timeout = min(timeout, self.timeout)
@@ -129,48 +130,6 @@ class ArbotixM:
         except:
             return None
 
-    def recv_array(self):
-        ''' This command should not be used on its own: it is called by the execute commands
-            below in a thread safe manner.
-        '''
-        try:
-            values = self.recv(self.timeout * self.N_ANALOG_PORTS).split()
-            return map(int, values)
-        except:
-            return []
-
-    def execute(self, cmd):
-        ''' Thread safe execution of "cmd" on the Arduino returning a single integer value.
-        '''
-        self.mutex.acquire()
-        
-        try:
-            self.port.flushInput()
-        except:
-            pass
-        
-        ntries = 1
-        attempts = 0
-        
-        try:
-            self.port.write(cmd + '\r')
-            value = self.recv(self.timeout)
-            while attempts < ntries and (value == '' or value == 'Invalid Command' or value == None):
-                try:
-                    self.port.flushInput()
-                    self.port.write(cmd + '\r')
-                    value = self.recv(self.timeout)
-                except:
-                    print "Exception executing command: " + cmd
-                attempts += 1
-        except:
-            self.mutex.release()
-            print "Exception executing command: " + cmd
-            value = None
-        
-        self.mutex.release()
-        return int(value)
-
     def execute_commander(self, cmds):
         ''' Thread safe execution of "cmd" on the Arduino returning a single integer value.
         '''
@@ -186,22 +145,21 @@ class ArbotixM:
           for k in self.addtypes:
              cmds[k] = cmds[k] + 128
           checksum = 0
-          self.port.write(chr(255))
+          #self.port.write(chr(255))   <<<<<<<<<<<<<<<Debug
           cmds['i_ComMode'] = cmds['i_Mode'] + cmds['i_Gait']
           for k in self.commandtypes:
-             self.port.write(chr(cmds[k]))
+             #self.port.write(chr(cmds[k]))  <<<<<<<<<<<<<<<Debug
              checksum += int(cmds[k])
           checksum = (255 - (checksum%256))
           print(cmds['i_RightV'],":_:",cmds['i_RightH'])
-          self.port.write(chr(checksum))
-          move_time = time.time()
+          #self.port.write(chr(checksum))  <<<<<<<<<<<<<<<Debug
           cmds['i_leftV'] = 0
           cmds['i_leftH'] = 0
           cmds['i_RightV'] = 0
           cmds['i_RightH']= 0
         except:
             self.mutex.release()
-            print "Exception executing command: " + cmd
+            print "Exception executing command: " + cmds
             value = None
 
         self.mutex.release()
@@ -277,128 +235,27 @@ class ArbotixM:
         
         self.mutex.release()
         return ack == 'OK'   
-    
-    def update_pid(self, Kp, Kd, Ki, Ko):
-        ''' Set the PID parameters on the Arduino
-        '''
-        print "Updating PID parameters"
-        cmd = 'u ' + str(Kp) + ':' + str(Kd) + ':' + str(Ki) + ':' + str(Ko)
-        self.execute_ack(cmd)                          
 
-    def get_baud(self):
-        ''' Get the current baud rate on the serial port.
-        '''
-        return int(self.execute('b'));
 
-    def get_encoder_counts(self):
-        values = self.execute_array('e')
-        if len(values) != 2:
-            print "Encoder count was not 2"
-            raise SerialException
-            return None
-        else:
-            return values
-
-    def reset_encoders(self):
-        ''' Reset the encoder counts to 0
-        '''
-        return self.execute_ack('r')
-    
-    def drive(self, right, left):
-        ''' Speeds are given in encoder ticks per PID interval
-        '''
-        return self.execute_ack('m %d %d' %(right, left))
-    
-    def drive_m_per_s(self, right, left):
-        ''' Set the motor speeds in meters per second.
-        '''
-        left_revs_per_second = float(left) / (self.wheel_diameter * PI)
-        right_revs_per_second = float(right) / (self.wheel_diameter * PI)
-
-        left_ticks_per_loop = int(left_revs_per_second * self.encoder_resolution * self.PID_INTERVAL * self.gear_reduction)
-        right_ticks_per_loop  = int(right_revs_per_second * self.encoder_resolution * self.PID_INTERVAL * self.gear_reduction)
-
-        self.drive(right_ticks_per_loop , left_ticks_per_loop )
+    def travel(self,x,y,z): #calculate travel related commands
+        atrib['i_Mode'] = WALK
+        atrib['i_leftV'] = 0
+        atrib['i_leftH'] = z
+        atrib['i_RightV'] = x
+        atrib['i_RightH']= y
+        atrib['ext']= 0
+        self.execute_commander(atrib)
         
     def stop(self):
         ''' Stop both motors.
         '''
-        self.drive(0, 0)
-            
-    def analog_read(self, pin):
-        return self.execute('a %d' %pin)
-    
-    def analog_write(self, pin, value):
-        return self.execute_ack('x %d %d' %(pin, value))
-    
-    def digital_read(self, pin):
-        return self.execute('d %d' %pin)
-    
-    def digital_write(self, pin, value):
-        return self.execute_ack('w %d %d' %(pin, value))
-    
-    def pin_mode(self, pin, mode):
-        return self.execute_ack('c %d %d' %(pin, mode))
+        atrib['i_Mode'] = WALK
+        atrib['i_leftV'] = 0
+        atrib['i_leftH'] = 0
+        atrib['i_RightV'] = 0
+        atrib['i_RightH']= 0
+        atrib['ext']= 0
+        self.execute_commander(atrib)
 
-    def servo_write(self, id, pos):
-        ''' Usage: servo_write(id, pos)
-            Position is given in radians and converted to degrees before sending
-        '''        
-        return self.execute_ack('s %d %d' %(id, min(SERVO_MAX, max(SERVO_MIN, degrees(pos)))))
-    
-    def servo_read(self, id):
-        ''' Usage: servo_read(id)
-            The returned position is converted from degrees to radians
-        '''        
-        return radians(self.execute('t %d' %id))
 
-    def ping(self, pin):
-        ''' The srf05/Ping command queries an SRF05/Ping sonar sensor
-            connected to the General Purpose I/O line pinId for a distance,
-            and returns the range in cm.  Sonar distance resolution is integer based.
-        '''
-        return self.execute('p %d' %pin);
-    
-#    def get_maxez1(self, triggerPin, outputPin):
-#        ''' The maxez1 command queries a Maxbotix MaxSonar-EZ1 sonar
-#            sensor connected to the General Purpose I/O lines, triggerPin, and
-#            outputPin, for a distance, and returns it in Centimeters. NOTE: MAKE
-#            SURE there's nothing directly in front of the MaxSonar-EZ1 upon
-#            power up, otherwise it wont range correctly for object less than 6
-#            inches away! The sensor reading defaults to use English units
-#            (inches). The sensor distance resolution is integer based. Also, the
-#            maxsonar trigger pin is RX, and the echo pin is PW.
-#        '''
-#        return self.execute('z %d %d' %(triggerPin, outputPin)) 
- 
-
-""" Basic test for connectivity """
-if __name__ == "__main__":
-    if os.name == "posix":
-        portName = "/dev/ttyACM0"
-    else:
-        portName = "COM43" # Windows style COM port.
-        
-    baudRate = 57600
-
-    myArbotixM = ArbotixM(port=portName, baudrate=baudRate, timeout=0.5)
-    myArbotixM.connect()
-     
-    print "Sleeping for 1 second..."
-    time.sleep(1)   
-    
-    print "Reading on analog port 0", myArbotixM.analog_read(0)
-    print "Reading on digital port 0", myArbotixM.digital_read(0)
-    print "Blinking the LED 3 times"
-    for i in range(3):
-        myArbotixM.digital_write(13, 1)
-        time.sleep(1.0)
-    #print "Current encoder counts", myArduino.encoders()
-    
-    print "Connection test successful.",
-    
-    myArbotixM.stop()
-    myArbotixM.close()
-    
-    print "Shutting down Arduino."
     
